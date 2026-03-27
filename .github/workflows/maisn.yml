@@ -1,53 +1,52 @@
-name: Signed Commit
+name: Update yeay.py with signed commit
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
-    branches:
+
+permissions:
+  contents: write
 
 jobs:
-  commit:
+  update-file:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-        
-      - name: Configure Git
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Import GPG key
         run: |
-          git config --global user.name "davooilgla"
-          git config --global user.email "271512678+davooilgla@users.noreply.github.com"
-      
-      - name: Setup GPG
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          KEY_ID=$(gpg --list-secret-keys --keyid-format LONG | grep sec | awk '{print $2}' | sed 's/.*\///')
+          echo "KEY_ID=$KEY_ID" >> $GITHUB_ENV
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+
+      - name: Trust the key
         run: |
-          mkdir -p ~/.gnupg
-          chmod 700 ~/.gnupg
-          
-          echo "$GPG_PRIVATE_KEY" | base64 --decode | gpg --batch --import --no-tty
-          
-          cat > ~/.gnupg/gpg-agent.conf <<EOF
-          allow-loopback-pinentry
-          default-cache-ttl 7200
-          max-cache-ttl 7200
-          EOF
-          
-          gpgconf --kill all || true
-          sleep 1
-      
-      - name: Configure Git GPG Signing
-        run: |
-          git config --global user.signingkey "${{ secrets.GPG_KEY_ID }}"
-          git config --global commit.gpgsign true
-          git config --global gpg.program gpg
-      
-      - name: Make Signed Commit
+          echo -e "5\ny\n" | gpg --command-fd 0 --batch --yes --edit-key $KEY_ID trust
         env:
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-          GNUPGHOME: /home/runner/.gnupg
+          KEY_ID: ${{ env.KEY_ID }}
+
+      - name: Add comment to top of yeay.py
         run: |
-          echo "# Modified $(date)" >> example.py
-          git add example.py
-          GIT_COMMITTER_NAME="davooilgla" GIT_COMMITTER_EMAIL="your-email@example.com" gpg --batch --no-tty --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" --sign /dev/null > /dev/null 2>&1 || true
-          git commit -S -m "Signed commit to .py file"
+          echo "# Auto-generated comment" | cat - yeay.py > temp && mv temp yeay.py
+
+      - name: Configure Git for signing
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          git config commit.gpgsign true
+          git config gpg.program gpg
+          git config user.signingkey $KEY_ID
+        env:
+          KEY_ID: ${{ env.KEY_ID }}
+
+      - name: Commit and push
+        run: |
+          git add yeay.py
+          git commit -m "Add comment to yeay.py" || echo "No changes to commit"
           git push
+        env:
+          GPG_TTY: $(tty)
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
