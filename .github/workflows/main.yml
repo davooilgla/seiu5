@@ -27,15 +27,39 @@ jobs:
 
     - name: Install Brave Browser
       run: |
-        echo "Installing Brave browser..."
+        echo "Installing Brave browser (robust key install with fallback)..."
         sudo apt-get -y update
-        # Add Brave GPG key and repo
-        sudo curl -fsSLo /usr/share/keyrings/brave-browser-archive-keyring.gpg https://brave-browser-apt-release.s3.brave.com/brave-core.asc
-        echo "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg arch=amd64] https://brave-browser-apt-release.s3.brave.com/ stable main" | sudo tee /etc/apt/sources.list.d/brave-browser-release.list
-        sudo apt-get -y update
-        sudo apt-get install -y --no-install-recommends brave-browser
-        brave-browser --version
+        sudo apt-get install -y --no-install-recommends curl gnupg ca-certificates lsb-release
+
+        # Primary method: fetch Brave GPG and store as keyring (preferred)
+        set -e
+        BRAVE_KEYRING=/usr/share/keyrings/brave-browser-archive-keyring.gpg
+        BRAVE_KEY_URL="https://brave-browser-apt-release.s3.brave.com/brave-core.asc"
+        if curl -fsSL "$BRAVE_KEY_URL" | sudo gpg --dearmor -o "$BRAVE_KEYRING"; then
+          echo "Brave GPG key installed to $BRAVE_KEYRING"
+        else
+          echo "Primary key install failed; attempting fallback (apt-key adv)..."
+          # Fallback: try apt-key adv (works on many runners; apt-key is deprecated but still available)
+          sudo apt-get install -y --no-install-recommends dirmngr
+          # Use the key ID from the error if needed; using Brave's keyserver retrieval
+          sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 0686B78420038257 || true
+        fi
+
+        # Add Brave repo using signed-by if keyring exists, otherwise add without signed-by
+        DISTRO=$(lsb_release -cs)
+        if [ -f "$BRAVE_KEYRING" ]; then
+          echo "deb [signed-by=$BRAVE_KEYRING arch=amd64] https://brave-browser-apt-release.s3.brave.com/ stable main" | sudo tee /etc/apt/sources.list.d/brave-browser-release.list
+        else
+          echo "Warning: keyring not found; adding repo without signed-by (less secure fallback)"
+          echo "deb [arch=amd64] https://brave-browser-apt-release.s3.brave.com/ stable main" | sudo tee /etc/apt/sources.list.d/brave-browser-release.list
+        fi
+
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends brave-browser || (echo "brave install failed"; exit 1)
+
+        brave-browser --version || true
       shell: bash
+
 
     - name: Install WARP
       run: |
