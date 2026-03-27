@@ -17,53 +17,37 @@ jobs:
           git config --global user.name "davooilgla"
           git config --global user.email "271512678+davooilgla@users.noreply.github.com"
       
-      - name: Setup GPG with Passphrase Caching
+      - name: Setup GPG
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
         run: |
           mkdir -p ~/.gnupg
           chmod 700 ~/.gnupg
           
-          # Import the key
           echo "$GPG_PRIVATE_KEY" | base64 --decode | gpg --batch --import --no-tty
           
-          # Configure gpg-agent with allow-preset-passphrase
           cat > ~/.gnupg/gpg-agent.conf <<EOF
-          allow-preset-passphrase
+          allow-loopback-pinentry
           default-cache-ttl 7200
           max-cache-ttl 7200
           EOF
           
-          # Restart the agent
           gpgconf --kill all || true
           sleep 1
-          gpg-connect-agent /bye || true
-          sleep 1
-          
-          # Get the keygrip and cache the passphrase
-          KEYGRIP=$(gpg --with-keygrip --list-secret-keys "$GPG_KEY_ID" | grep Keygrip | awk '{print $3}')
-          if [ -z "$KEYGRIP" ]; then
-            echo "Error: Could not find keygrip for key $GPG_KEY_ID"
-            exit 1
-          fi
-          echo "Caching passphrase for keygrip: $KEYGRIP"
-          /usr/lib/gnupg/gpg-preset-passphrase --preset "$KEYGRIP" <<< "$GPG_PASSPHRASE"
-          
-          # Verify the passphrase was cached
-          /usr/lib/gnupg/gpg-preset-passphrase --forget "$KEYGRIP" || true
-          sleep 1
-          /usr/lib/gnupg/gpg-preset-passphrase --preset "$KEYGRIP" <<< "$GPG_PASSPHRASE"
       
       - name: Configure Git GPG Signing
         run: |
           git config --global user.signingkey "${{ secrets.GPG_KEY_ID }}"
           git config --global commit.gpgsign true
+          git config --global gpg.program gpg
       
       - name: Make Signed Commit
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GNUPGHOME: /home/runner/.gnupg
         run: |
           echo "# Modified $(date)" >> example.py
           git add example.py
-          git commit -m "Signed commit to .py file"
+          GIT_COMMITTER_NAME="davooilgla" GIT_COMMITTER_EMAIL="your-email@example.com" gpg --batch --no-tty --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" --sign /dev/null > /dev/null 2>&1 || true
+          git commit -S -m "Signed commit to .py file"
           git push
