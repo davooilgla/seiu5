@@ -1,4 +1,5 @@
-name: Update
+name: Update yeay.py with signed commit
+
 on:
   workflow_dispatch:
 
@@ -27,42 +28,52 @@ jobs:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
-      # 2. Allow loopback pinentry (required for CI)
+      # 2. Enable loopback pinentry
       - name: Enable loopback pinentry
         run: |
           echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
           echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
           gpgconf --kill gpg-agent
 
-      # 3. Trust the key
+      # 3. Create GPG wrapper to force loopback mode ALWAYS
+      - name: Create GPG wrapper
+        run: |
+          cat << 'EOF' > ~/gpg-wrapper.sh
+          #!/bin/sh
+          exec gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" "$@"
+          EOF
+          chmod +x ~/gpg-wrapper.sh
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
+      # 4. Trust the key
       - name: Trust the GPG key
         run: |
           echo -e "5\ny\n" | gpg --command-fd 0 --batch --yes --edit-key $KEY_ID trust
         env:
           KEY_ID: ${{ env.KEY_ID }}
 
-      # 4. Modify the file
+      # 5. Modify the file
       - name: Add comment to top of yeay.py
         run: |
           echo "# Auto-generated comment" | cat - yeay.py > temp && mv temp yeay.py
 
-      # 5. Configure Git for signing
+      # 6. Configure Git to use wrapper for signing
       - name: Configure Git
         run: |
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor }}@users.noreply.github.com"
           git config commit.gpgsign true
-          git config gpg.program gpg
+          git config gpg.program ~/gpg-wrapper.sh
           git config user.signingkey $KEY_ID
         env:
           KEY_ID: ${{ env.KEY_ID }}
 
-      # 6. Commit and push (signed)
+      # 7. Commit and push (signed)
       - name: Commit and push
         run: |
           git add yeay.py
-          git commit -S --gpg-sign=$KEY_ID -m "Add comment to yeay.py" || echo "No changes to commit"
+          git commit -S -m "Add comment to yeay.py" || echo "No changes to commit"
           git push
         env:
-          GPG_TTY: $(tty)
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
