@@ -18,8 +18,21 @@ jobs:
           git config --global user.email "271512678+davooilgla@users.noreply.github.com"
       
       - name: Import GPG Key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
-          echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 --decode | gpg --batch --yes --import
+          echo "$GPG_PRIVATE_KEY" | base64 --decode | gpg --batch --import
+      
+      - name: Configure GPG Agent
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          mkdir -p ~/.gnupg
+          echo "pinentry-program /usr/bin/pinentry-curses" > ~/.gnupg/gpg-agent.conf
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent
+          gpg-agent --daemon --default-cache-ttl 7200 > /dev/null
       
       - name: Configure Git GPG
         run: |
@@ -32,5 +45,5 @@ jobs:
         run: |
           echo "# Modified" >> example.py
           git add example.py
-          git commit -m "Signed commit to .py file"
+          git commit -m "Signed commit to .py file" --verbose
           git push
