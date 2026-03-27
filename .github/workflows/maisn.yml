@@ -62,7 +62,7 @@ jobs:
       - name: Configure Git
         run: |
           git config user.name "${{ github.actor }}"
-          git config user.email "${{ github.actor }}@users.noreply.github.com"
+          git config user.email "271512678+davooilgla@users.noreply.github.com"
           git config commit.gpgsign true
           git config gpg.program ~/gpg-wrapper.sh
           git config user.signingkey $KEY_ID
