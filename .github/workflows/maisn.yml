@@ -76,7 +76,7 @@ jobs:
       - name: Commit and push
         run: |
           git add yeay.py
-          git commit -S -m "Add comment to yeay.py" || echo "No changes to commit"
+          git commit -S -m "Update yeay.py" || echo "No changes to commit"
           git push
         env:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
