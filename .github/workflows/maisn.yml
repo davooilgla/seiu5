@@ -1,0 +1,35 @@
+name: Signed Commit
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        
+      - name: Configure Git
+        run: |
+          git config --global user.name "davooilgla"
+          git config --global user.email "271512678+davooilgla@users.noreply.github.com"
+      
+      - name: Import GPG Key
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 --decode | gpg --batch --yes --import
+      
+      - name: Configure Git GPG
+        run: |
+          git config --global user.signingkey "${{ secrets.GPG_KEY_ID }}"
+          git config --global commit.gpgsign true
+      
+      - name: Make Signed Commit
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          echo "# Modified" >> example.py
+          git add example.py
+          git commit -m "Signed commit to .py file"
+          git push
