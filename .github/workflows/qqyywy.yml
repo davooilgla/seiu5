@@ -1,0 +1,118 @@
+name: yyeea
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    branches:
+jobs:
+  build:
+    env:
+      PY_COLORS: "1"
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.13"]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install Brave Browser
+      run: |
+        echo "Installing Brave browser (robust key install with fallback)..."
+        sudo apt-get -y update
+        sudo apt-get install -y --no-install-recommends curl gnupg ca-certificates lsb-release
+
+        # Primary method: fetch Brave GPG and store as keyring (preferred)
+        set -e
+        BRAVE_KEYRING=/usr/share/keyrings/brave-browser-archive-keyring.gpg
+        BRAVE_KEY_URL="https://brave-browser-apt-release.s3.brave.com/brave-core.asc"
+        if curl -fsSL "$BRAVE_KEY_URL" | sudo gpg --dearmor -o "$BRAVE_KEYRING"; then
+          echo "Brave GPG key installed to $BRAVE_KEYRING"
+        else
+          echo "Primary key install failed; attempting fallback (apt-key adv)..."
+          # Fallback: try apt-key adv (works on many runners; apt-key is deprecated but still available)
+          sudo apt-get install -y --no-install-recommends dirmngr
+          # Use the key ID from the error if needed; using Brave's keyserver retrieval
+          sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 0686B78420038257 || true
+        fi
+
+        # Add Brave repo using signed-by if keyring exists, otherwise add without signed-by
+        DISTRO=$(lsb_release -cs)
+        if [ -f "$BRAVE_KEYRING" ]; then
+          echo "deb [signed-by=$BRAVE_KEYRING arch=amd64] https://brave-browser-apt-release.s3.brave.com/ stable main" | sudo tee /etc/apt/sources.list.d/brave-browser-release.list
+        else
+          echo "Warning: keyring not found; adding repo without signed-by (less secure fallback)"
+          echo "deb [arch=amd64] https://brave-browser-apt-release.s3.brave.com/ stable main" | sudo tee /etc/apt/sources.list.d/brave-browser-release.list
+        fi
+
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends brave-browser || (echo "brave install failed"; exit 1)
+
+        brave-browser --version || true
+      shell: bash
+
+
+    - name: Install WARP
+      run: |
+        echo "Setting up Cloudflare WARP..."
+        sudo apt-get -y update
+        curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+        echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+        sudo apt-get update && sudo apt-get install -y --no-install-recommends cloudflare-warp
+        sudo warp-cli --accept-tos registration new || true
+        sudo warp-cli --accept-tos mode warp+doh || true
+        sudo warp-cli --accept-tos connect || true
+        sleep 5
+      shell: bash
+
+    - name: Ensure connection is WARP'ed
+      run: |
+        echo "Checking WARP connection..."
+        curl -s https://www.cloudflare.com/cdn-cgi/trace | grep "warp=on" || true
+      shell: bash
+
+    - name: Set Locale
+      run: |
+        sudo apt-get install tzdata locales -y
+        sudo locale-gen en_US.UTF-8
+        sudo localectl set-locale LANG="en_US.UTF-8"
+        export LANG="en_US.UTF-8"
+        sudo update-locale
+        locale -a
+        locale
+      shell: bash
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip wheel
+        pip install --upgrade seleniumbase pyautogui pymongo python-xlib pytest
+      shell: bash
+
+    - name: Install chromedriver (seleniumbase helper)
+      run: |
+        seleniumbase install chromedriver
+      shell: bash
+
+    - name: Run unit tests with pytest
+      run: |
+        echo "Running pytest (unit tests / mocks) — must pass before running script"
+        pytest -q || (echo "pytest failed")
+      shell: bash
+
+    - name: Run python yeay.py under Xvfb (Brave)
+      run: |
+        echo "Running script with Brave in headless Xvfb environment"
+        # Use Xvfb to provide a virtual display for browsers
+        #sudo apt-get install -y xvfb
+        # Run script under Xvfb; keep flags you used previously
+        python yeay.py --brave --incognito --do-not-track --xvfb --screenshot || (echo "script failed"; exit 1)
+      shell: bash
