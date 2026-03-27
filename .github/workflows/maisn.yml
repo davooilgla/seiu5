@@ -1,9 +1,10 @@
 name: Signed Commit
 
 on:
-  push:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
     branches:
-      - main
 
 jobs:
   commit:
