@@ -35,12 +35,19 @@ jobs:
           max-cache-ttl 7200
           EOF
           
+          # Restart the agent
           gpgconf --kill all || true
           sleep 1
-          gpg-agent --daemon
+          gpg-connect-agent /bye || true
+          sleep 1
           
           # Get the keygrip and cache the passphrase
           KEYGRIP=$(gpg --with-keygrip --list-secret-keys "$GPG_KEY_ID" | grep Keygrip | awk '{print $3}')
+          if [ -z "$KEYGRIP" ]; then
+            echo "Error: Could not find keygrip for key $GPG_KEY_ID"
+            exit 1
+          fi
+          echo "Caching passphrase for keygrip: $KEYGRIP"
           /usr/lib/gnupg/gpg-preset-passphrase --preset "$KEYGRIP" <<< "$GPG_PASSPHRASE"
       
       - name: Configure Git GPG Signing
